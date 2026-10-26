@@ -1,0 +1,7 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.yarn/install-state.gz
+.yarn/cache/
+work/
+.env.local
