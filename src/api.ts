@@ -3,25 +3,45 @@ import type { PaperRecord, Quota, ScoreResult, Tag, UserSession } from './types'
 import server from '../server.config.json'
 const SESSION_KEY = 'practice-desk-session'
 
+function browserStorage(kind: 'localStorage' | 'sessionStorage'): Storage | null {
+  try {
+    return typeof window !== 'undefined' ? window[kind] : null
+  } catch {
+    return null
+  }
+}
+
 export function getApiBase() { return server.apiBase }
 
 export function getSession(): UserSession | null {
+  const persistent = browserStorage('localStorage')
+  const legacy = browserStorage('sessionStorage')
   try {
-    const session = JSON.parse(sessionStorage.getItem(SESSION_KEY) || 'null') as UserSession | null
-    if (session && session.expire > Date.now()) return session
+    const raw = persistent?.getItem(SESSION_KEY) || legacy?.getItem(SESSION_KEY)
+    const session = JSON.parse(raw || 'null') as UserSession | null
+    if (session && typeof session.sid === 'string' && typeof session.id === 'number') {
+      if (!persistent?.getItem(SESSION_KEY) && persistent) persistent.setItem(SESSION_KEY, JSON.stringify(session))
+      return session
+    }
   } catch {
-    sessionStorage.removeItem(SESSION_KEY)
+    persistent?.removeItem(SESSION_KEY)
+    legacy?.removeItem(SESSION_KEY)
   }
-  sessionStorage.removeItem(SESSION_KEY)
+  persistent?.removeItem(SESSION_KEY)
+  legacy?.removeItem(SESSION_KEY)
   return null
 }
 
 export function saveSession(session: UserSession) {
-  sessionStorage.setItem(SESSION_KEY, JSON.stringify(session))
+  const persistent = browserStorage('localStorage')
+  if (!persistent) throw new Error('浏览器无法保存登录状态')
+  persistent.setItem(SESSION_KEY, JSON.stringify(session))
+  browserStorage('sessionStorage')?.removeItem(SESSION_KEY)
 }
 
 export function clearSession() {
-  sessionStorage.removeItem(SESSION_KEY)
+  browserStorage('localStorage')?.removeItem(SESSION_KEY)
+  browserStorage('sessionStorage')?.removeItem(SESSION_KEY)
 }
 
 export async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
