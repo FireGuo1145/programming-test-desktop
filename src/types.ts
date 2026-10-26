@@ -1,3 +1,5 @@
+import type { AIBridge } from './ai-types'
+
 export interface UserSession {
   id: number
   name: string
@@ -61,7 +63,7 @@ export interface PaperRecord {
 
 declare global {
   interface Window {
-    desktop?: { platform: string; isElectron: boolean; request: (request: { path: string; method: string; body?: string }) => Promise<unknown>; config: () => Promise<{ apiBase: string }>; verification: (sessionId: string) => Promise<string> }
+    desktop?: { ai: AIBridge; platform: string; isElectron: boolean; request: (request: { path: string; method: string; body?: string }) => Promise<unknown>; config: () => Promise<{ apiBase: string }>; verification: (sessionId: string) => Promise<string> }
   }
 }
 

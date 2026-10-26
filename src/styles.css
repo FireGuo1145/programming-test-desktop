@@ -27,3 +27,29 @@
 .results-error{padding:16px;border:1px solid #f4dfda;background:#fbf2ef;border-radius:5px;font-size:12px;color:#b64e44;margin-bottom:14px}
 .results-error button{margin-left:12px}
 .results-footer{margin-top:22px}
+
+.ai-help{border:1px solid #dce8df;border-radius:6px;background:#fff;margin-bottom:15px;overflow:hidden}
+.ai-help-bar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 13px;background:#f2f7f1}
+.ai-help-title,.ai-help-actions{display:flex;align-items:center;gap:8px}
+.ai-help-title{color:#46744d;font-size:11px}.ai-help-title span{font-size:10px;color:#84917f}
+.ai-help-actions .primary-button,.ai-help-actions .secondary-button{height:30px;font-size:10px}
+.ai-help-error{padding:12px 14px;font-size:11px;color:#ad463d;border-top:1px solid #f0e4e1}
+.ai-explanation{padding:0 14px;font-size:11px;line-height:1.8;white-space:pre-wrap;color:#53644f}
+.ai-history{font-size:10px;color:#72846e;border-top:1px solid #e7ede4;padding:9px 14px}
+.ai-history summary{cursor:pointer;overflow-wrap:anywhere;max-height:44px;overflow:auto}
+.ai-history ol{max-height:220px;overflow:auto;padding:0;margin:9px 0 0;list-style:none}
+.ai-history li{display:flex;gap:9px;border-top:1px solid #f0f2ee;padding:7px 0}
+.ai-history li>span{flex:0 0 26px;color:#86927e;font:9px var(--mono);padding-top:3px}
+.ai-history pre{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;font:10px/1.7 var(--mono);color:#65775d}
+.ai-history .ai-event-error pre{color:#ac5345}
+.ai-settings{width:min(510px,100%);max-height:92dvh;overflow:auto}
+.ai-settings input:not([type=checkbox]),.ai-settings select{width:100%;min-height:37px;padding:7px 10px;border:1px solid #dfe6db;border-radius:4px;background:#fff;outline:0;color:#34422f;font-size:12px}
+.ai-settings input:focus,.ai-settings select:focus{border-color:#77a67b;box-shadow:0 0 0 2px #77a67b18}
+.ai-settings .field-label{margin-top:14px}
+.ai-field-hint{display:block;font-size:10px;line-height:1.6;color:#8b9585;margin-top:5px}
+.ai-settings-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.ai-settings .ai-checkbox{display:flex;align-items:center;gap:7px;font-size:11px;color:#64725d;margin-top:13px;cursor:pointer}
+.ai-checkbox input{accent-color:var(--green)}
+.ai-sharing-note{padding:10px;background:#f3f6f0;border:1px solid #e6eddf;border-radius:4px;font-size:10px!important}
+.ai-key-state{font-size:9px;color:var(--green);margin-left:5px}
+@media(max-width:1100px){.ai-help-title span{display:none}.ai-help-actions{gap:5px}}

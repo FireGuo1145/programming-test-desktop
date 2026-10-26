@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain } = require('electron')
+const { app, BrowserWindow, ipcMain, safeStorage } = require('electron')
 const { createHash } = require('node:crypto')
 const path = require('node:path')
 const isDev = process.argv.includes('--dev')
@@ -30,6 +30,8 @@ ipcMain.handle('student:verification', (event, sessionId) => {
   const pad = value => String(value).padStart(2, '0')
   return createHash('md5').update(`${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())} ${sessionId}`).digest('hex')
 })
+require('./ai.cjs').registerAI({ app, ipcMain, safeStorage, trusted })
+
 function createWindow() {
   const window = new BrowserWindow({ width: 1440, height: 960, minWidth: 960, minHeight: 680, backgroundColor: '#f4f5f3', title: '题序 Practice Desk', webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true } })
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
