@@ -1,0 +1,66 @@
+name: Build desktop packages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-linux:
+    name: Linux AppImage
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Enable Corepack
+        run: corepack enable
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: yarn
+      - name: Install dependencies
+        run: yarn install --immutable
+      - name: Test
+        run: yarn test
+      - name: Build renderer
+        run: yarn build
+      - name: Package Linux
+        run: yarn package:linux
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: practice-desk-linux
+          path: release/*.AppImage
+          if-no-files-found: error
+
+  build-windows:
+    name: Windows NSIS
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Enable Corepack
+        run: corepack enable
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: yarn
+      - name: Install dependencies
+        run: yarn install --immutable
+      - name: Test
+        run: yarn test
+      - name: Build renderer
+        run: yarn build
+      - name: Package Windows
+        run: yarn package:windows
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: practice-desk-windows
+          path: release/*.exe
+          if-no-files-found: error

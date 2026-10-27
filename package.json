@@ -10,7 +10,9 @@
     "check": "tsc --noEmit",
     "test": "vitest run",
     "preview": "vite preview --host 127.0.0.1",
-    "start": "electron ."
+    "start": "electron .",
+    "package:linux": "npx --yes electron-builder@26.18.0 --linux AppImage --x64 --publish never",
+    "package:windows": "npx --yes electron-builder@26.18.0 --win nsis --x64 --publish never"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
@@ -37,5 +39,15 @@
     "vitest": "^2.1.8",
     "wait-on": "^8.0.1"
   },
-  "packageManager": "yarn@4.9.2"
+  "packageManager": "yarn@4.9.2",
+  "build": {
+    "appId": "org.fireguo.practice-desk",
+    "productName": "Practice Desk",
+    "asar": true,
+    "directories": { "output": "release" },
+    "files": ["dist/**/*", "electron/**/*", "server.config.json", "package.json"],
+    "linux": { "target": ["AppImage"], "category": "Education" },
+    "win": { "target": ["nsis"] },
+    "nsis": { "oneClick": true, "perMachine": false, "createDesktopShortcut": true }
+  }
 }
