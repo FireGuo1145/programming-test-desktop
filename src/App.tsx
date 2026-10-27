@@ -8,6 +8,8 @@ import { Activity, ArrowLeft, BookOpen, Check, ChevronDown, CircleHelp, Code2, F
 import { authApi, clearSession, exerciseApi, getApiBase, getSession, saveSession, verificationCode } from './api'
 import DOMPurify from 'dompurify'
 import Results from './Results'
+import History from './History'
+import Rank from './Rank'
 import { createSaveQueue, submitAfterSave } from './submission'
 import type { AnswerPaper, PaperRecord, Question, Quota, Tag, UserSession } from './types'
 
@@ -36,6 +38,8 @@ export default function App() {
   return <Routes>
     <Route path="/login" element={<Login onLogin={s => { saveSession(s); setSession(s); navigate('/practice') }} />} />
     <Route path="/practice" element={session ? <Shell session={session} onLogout={logout}><Practice /></Shell> : <Navigate to="/login" replace />} />
+    <Route path="/history" element={session ? <Shell session={session} onLogout={logout}><History /></Shell> : <Navigate to="/login" replace />} />
+    <Route path="/rank" element={session ? <Shell session={session} onLogout={logout}><Rank /></Shell> : <Navigate to="/login" replace />} />
     <Route path="/results/:sessionId" element={session ? <Shell session={session} onLogout={logout}><Results /></Shell> : <Navigate to="/login" replace />} />
     <Route path="/session/:sessionId" element={session ? <Shell session={session} onLogout={logout}><Session /></Shell> : <Navigate to="/login" replace />} />
     <Route path="*" element={<Navigate to={session ? '/practice' : '/login'} replace />} />
@@ -77,12 +81,12 @@ function Shell({ session, onLogout, children }: { session: UserSession; onLogout
   const [notice, setNotice] = useState('')
   useEffect(() => { if (!notice) return; const timer = setTimeout(() => setNotice(''), 3200); return () => clearTimeout(timer) }, [notice])
   return <div className="app-shell"><aside className="sidebar"><Link to="/practice" className="brand"><div className="brand-mark"><Code2 size={19} /></div><span>题序<small>PRACTICE DESK</small></span></Link>
-    <div className="side-section-label">工作区</div><div className="side-nav"><Link className="nav-item active" to="/practice"><BookOpen size={17} /><span>开始练习</span><span className="nav-active-dot" /></Link><button className="nav-item" onClick={() => setNotice('历史记录模块尚未接入')}><Activity size={17} /><span>历史记录</span></button><button className="nav-item" onClick={() => setNotice('排行榜模块尚未接入')}><Trophy size={17} /><span>排行榜</span></button><div className="side-section-label secondary">练习模式</div><button className="nav-item" onClick={() => setNotice('实验模块尚未接入')}><FlaskConical size={17} /><span>实验</span></button><button className="nav-item" onClick={() => setNotice('闯关模式可在选题面板切换')}><Gauge size={17} /><span>闯关</span></button></div>
+    <div className="side-section-label">工作区</div><div className="side-nav"><Link className={`nav-item ${location.pathname === '/practice' ? 'active' : ''}`} to="/practice"><BookOpen size={17} /><span>开始练习</span>{location.pathname === '/practice' && <span className="nav-active-dot" />}</Link><Link className={`nav-item ${location.pathname === '/history' ? 'active' : ''}`} to="/history"><Activity size={17} /><span>历史记录</span>{location.pathname === '/history' && <span className="nav-active-dot" />}</Link><Link className={`nav-item ${location.pathname === '/rank' ? 'active' : ''}`} to="/rank"><Trophy size={17} /><span>排行榜</span>{location.pathname === '/rank' && <span className="nav-active-dot" />}</Link><div className="side-section-label secondary">练习模式</div><button className="nav-item" onClick={() => setNotice('实验模块尚未接入')}><FlaskConical size={17} /><span>实验</span></button><button className="nav-item" onClick={() => setNotice('闯关模式可在选题面板切换')}><Gauge size={17} /><span>闯关</span></button></div>
     <div className="sidebar-bottom"><div className="help-row"><CircleHelp size={16} /><span>帮助与反馈</span><span className="shortcut">?</span></div><div className="profile-card"><div className="avatar">{(session.name || session.code || 'U').slice(0, 1).toUpperCase()}</div><div className="profile-meta"><strong>{session.name || '练习者'}</strong><span>{session.code}</span></div><button title="退出登录" className="icon-button logout-button" onClick={onLogout}><LogOut size={16} /></button></div></div>
   </aside><main className="main-area"><header className="topbar"><div className="breadcrumb"><span>工作区</span><span>/</span><strong>{locationLabel()}</strong></div><label className="search-box"><Search size={15} /><input value={query} onChange={e => setQuery(e.target.value)} placeholder="搜索题目、标签..." /><kbd>⌘ K</kbd></label><button className="icon-button top-settings" title="AI 接口设置" aria-label="AI 接口设置" onClick={() => setShowAISettings(true)}><Settings2 size={17} /></button><div className="top-avatar">{(session.name || session.code || 'U').slice(0, 1).toUpperCase()}</div></header><div className="content-scroll">{children}</div>{showAISettings && <AISettings onClose={() => setShowAISettings(false)} />}{notice && <div className="toast"><span className="toast-dot" />{notice}<button onClick={() => setNotice('')}><X size={14} /></button></div>}</main></div>
 }
 
-function locationLabel() { return window.location.hash.includes('/results/') ? '练习结果' : window.location.hash.includes('/session/') ? '正在练习' : '开始练习' }
+function locationLabel() { return window.location.hash.includes('/results/') ? '练习结果' : window.location.hash.includes('/session/') ? '正在练习' : window.location.hash.includes('/history') ? '历史记录' : window.location.hash.includes('/rank') ? '排行榜' : '开始练习' }
 
 function Practice() {
   const [type, setType] = useState(4)

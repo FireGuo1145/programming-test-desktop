@@ -1,4 +1,4 @@
-import type { PaperRecord, Quota, ScoreResult, Tag, UserSession } from './types'
+import type { HistoryPage, HistoryOverviewPoint, HistoryTag, PaperRecord, Quota, RankPage, ScoreResult, Tag, UserSession } from './types'
 
 import server from '../server.config.json'
 const SESSION_KEY = 'practice-desk-session'
@@ -81,6 +81,10 @@ export const exerciseApi = {
   score: (sessionId: string) => request<ScoreResult[]>(`api/student/score-result/${encodeURIComponent(sessionId)}`),
   challengeStart: (tagId: number) => request<{ code: number; run?: { sessionId: string; id?: number; runId?: string } }>('api/student/challenge/start', { method: 'POST', body: JSON.stringify({ tagId }) }),
   submit: (sessionId: string) => request<boolean | null>(`api/student/submit?sessionId=${encodeURIComponent(sessionId)}`, { method: 'POST', body: 'null' }),
+  history: (index: number, size: number, search = '', tagId = 0) => request<HistoryPage>(`api/student/history?tagId=${tagId}`, { method: 'POST', body: JSON.stringify({ index, size, search }) }),
+  historyTags: () => request<HistoryTag[]>('api/student/record-tag'),
+  historyOverview: () => request<HistoryOverviewPoint[]>('api/student/record-year'),
+  rank: (index: number, size: number, search = '', scope = 0) => request<RankPage>(`api/student/rank?scope=${scope}`, { method: 'POST', body: JSON.stringify({ index, size, search }) }),
 }
 
 export async function verificationCode(sessionId: string) {

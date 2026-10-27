@@ -6,7 +6,7 @@ const config = require('../server.config.json')
 const server = new URL(config.apiBase)
 if (!['http:', 'https:'].includes(server.protocol) || server.username || server.password) throw new Error('服务地址必须为 HTTP(S) URL')
 server.pathname = server.pathname.replace(/\/$/, '') + '/'
-const allowed = new Set(['auth', 'logout', 'list-tag', 'quota', 'choose-q', 'post-answer', 'submit', 'run-code', 'format-code', 'challenge/active', 'challenge/start', 'challenge/next', 'challenge/run', 'challenge/score-result'])
+const allowed = new Set(['auth', 'logout', 'list-tag', 'quota', 'choose-q', 'post-answer', 'submit', 'run-code', 'format-code', 'history', 'record-tag', 'record-year', 'rank', 'challenge/active', 'challenge/start', 'challenge/next', 'challenge/run', 'challenge/score-result'])
 function trusted(event) {
   const url = event.senderFrame?.url || ''
   return isDev ? new URL(url).origin === 'http://127.0.0.1:5173' : url === require('node:url').pathToFileURL(path.join(__dirname, '../dist/index.html')).href || url.startsWith(require('node:url').pathToFileURL(path.join(__dirname, '../dist/index.html')).href + '#')

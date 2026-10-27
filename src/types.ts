@@ -73,3 +73,23 @@ export interface ScoreResult {
   qType: number
   scoreResult?: unknown
 }
+
+export interface HistoryRecord {
+  sessionId: string
+  state: number
+  score?: number
+  fullScore?: number
+  startTime?: string
+  endTime?: string
+  qBaseType?: number
+  questionCount?: number
+  tag?: { content?: string; contentEn?: string }
+  tagName?: string
+  commentCount?: number
+}
+
+export interface HistoryTag { id: number; content: string; count?: number }
+export interface HistoryPage { total: number; data: HistoryRecord[] }
+export interface HistoryOverviewPoint { date: string; count: number; score: number }
+export interface RankEntry { rank?: number; code: string; name: string; totalScore: number; gold: number }
+export interface RankPage { total: number; data: RankEntry[] }
