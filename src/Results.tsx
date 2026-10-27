@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import DOMPurify from 'dompurify'
 import { exerciseApi } from './api'
 import type { Answer, PaperRecord, ScoreResult } from './types'
+import QuestionContent from './QuestionContent'
 
 function answerText(answer?: Answer) {
   if (!answer) return '未作答'
@@ -74,7 +74,7 @@ export default function Results() {
     <div className="results-list">{record?.paper.questions.map(question => {
       const answer = Object.values(record.answerPaper).flat().find(value => value.globalId === question.globalId)
       const score = scores.find(value => value.globalId === question.globalId)
-      return <article className="result-question" key={question.globalId}><header><strong>Q{question.id}</strong><span>{score ? `${score.score} 分` : waiting ? '等待评分' : '暂无得分'}</span></header><div className="problem-content" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(question.content || '') }} />{record.canViewCode !== false && <pre className="result-answer">{answerText(answer)}</pre>}{score?.scoreResult != null && <details><summary>评分详情</summary><pre className="result-answer">{typeof score.scoreResult === 'string' ? score.scoreResult : JSON.stringify(score.scoreResult, null, 2)}</pre></details>}</article>
+      return <article className="result-question" key={question.globalId}><header><strong>Q{question.id}</strong><span>{score ? `${score.score} 分` : waiting ? '等待评分' : '暂无得分'}</span></header><QuestionContent value={question.content || ''} />{record.canViewCode !== false && <pre className="result-answer">{answerText(answer)}</pre>}{score?.scoreResult != null && <details><summary>评分详情</summary><pre className="result-answer">{typeof score.scoreResult === 'string' ? score.scoreResult : JSON.stringify(score.scoreResult, null, 2)}</pre></details>}</article>
     })}</div>
   </div>
 }

@@ -7,11 +7,12 @@ import AIHelp from './AIHelp'
 import { Activity, ArrowLeft, BookOpen, Check, ChevronDown, CircleHelp, Code2, FlaskConical, Gauge, LogOut, Play, Search, Settings2, Terminal, Trophy, X } from 'lucide-react'
 import { authApi, clearSession, exerciseApi, getApiBase, getSession, saveSession, verificationCode } from './api'
 import DOMPurify from 'dompurify'
+import QuestionContent from './QuestionContent'
 import Results from './Results'
 import History from './History'
 import Rank from './Rank'
 import { createSaveQueue, submitAfterSave } from './submission'
-import type { AnswerPaper, PaperRecord, Question, Quota, Tag, UserSession } from './types'
+import type { Answer, AnswerPaper, ObjectiveAnswer, PaperRecord, Question, Quota, Tag, UserSession } from './types'
 
 const questionTypes = [{ id: 0, label: '单选题', icon: 'A' }, { id: 1, label: '多选题', icon: '☷' }, { id: 2, label: '判断题', icon: '✓' }, { id: 3, label: '填空题', icon: '___' }, { id: 4, label: '编程题', icon: '</>' }]
 const difficulties = ['随机', '初学者', '容易', '中等', '困难', '极难']
@@ -88,6 +89,18 @@ function Shell({ session, onLogout, children }: { session: UserSession; onLogout
 
 function locationLabel() { return window.location.hash.includes('/results/') ? '练习结果' : window.location.hash.includes('/session/') ? '正在练习' : window.location.hash.includes('/history') ? '历史记录' : window.location.hash.includes('/rank') ? '排行榜' : '开始练习' }
 
+function questionBucket(question: Question): keyof AnswerPaper { return question.qType >= 5 ? 'q4' : `q${question.qType}` as keyof AnswerPaper }
+function findAnswer(paper: AnswerPaper | null, question: Question): Answer | undefined { return paper?.[questionBucket(question)].find(answer => answer.globalId === question.globalId) }
+function answerString(answer: Answer | undefined): string {
+  if (!answer) return ''
+  if (Array.isArray(answer.answer)) return answer.answer.map(value => typeof value === 'string' ? value : value.content).join('\n')
+  return String(answer.answer ?? '')
+}
+function answerForAI(question: Question, answer: Answer | undefined): string {
+  if (question.qType === 1 && Array.isArray(answer?.answer)) return answer.answer.map(value => typeof value === 'string' ? value : value.globalId).join(',')
+  return answerString(answer)
+}
+
 function Practice() {
   const [type, setType] = useState(4)
   const [mode, setMode] = useState(0)
@@ -160,6 +173,7 @@ function Session() {
   const [confirmSubmit, setConfirmSubmit] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [aiWorking, setAIWorking] = useState(false)
+  const [answerRevision, setAnswerRevision] = useState(0)
   const editorRef = useRef<Parameters<OnMount>[0] | null>(null)
   const [submitStep, setSubmitStep] = useState('')
   const submittingRef = useRef(false)
@@ -183,9 +197,10 @@ function Session() {
       savedSnapshotRef.current = JSON.stringify(paper.answerPaper)
       deadlineRef.current = Date.now() + paper.timeLeft * 1000
       setRecord(paper); setSeconds(paper.timeLeft)
-      const first = paper.answerPaper.q4[0]
-      setCode(typeof first?.answer === 'string' ? first.answer : '')
-      if (paper.paper.questions[0]?.language) setLanguage(paper.paper.questions[0].language)
+      const first = paper.paper.questions[0]
+      const firstAnswer = findAnswer(paper.answerPaper, first)
+      setCode(first && first.qType >= 5 ? answerString(firstAnswer) : '')
+      if (first?.language) setLanguage(first.language)
     }).catch(e => { if (!cancelled) setError(e.message) })
     return () => { cancelled = true }
   }, [sessionId, navigate])
@@ -199,7 +214,7 @@ function Session() {
     if (!record || submitting) return
     const timer = setTimeout(() => { void saveAnswer().catch(() => undefined) }, 2500)
     return () => clearTimeout(timer)
-  }, [code, record, submitting])
+  }, [code, answerRevision, record, submitting])
 
   const question = record?.paper.questions[activeQuestion]
   const formattedTime = `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`
@@ -212,6 +227,29 @@ function Session() {
     if (current) current.answer = value
     else answers.q4.push({ globalId: question.globalId, qType: question.qType, answer: value, keySequence: [], inputSequence: [] })
     setCode(value)
+    setAnswerRevision(revision => revision + 1)
+  }
+
+  function currentAnswer() { return question ? findAnswer(answerPaperRef.current, question) : undefined }
+  function setObjectiveAnswer(value: ObjectiveAnswer) {
+    if (question) setAnswerForQuestion(question, value)
+  }
+  function setAnswerForQuestion(target: Question, value: ObjectiveAnswer) {
+    if (!answerPaperRef.current || submittingRef.current) return
+    const bucket = questionBucket(target)
+    const current = answerPaperRef.current[bucket].find(item => item.globalId === target.globalId)
+    const answer = current || { globalId: target.globalId, qType: target.qType, answer: value }
+    answer.answer = value
+    if (!current) answerPaperRef.current[bucket].push(answer)
+    if (question?.globalId === target.globalId) setAnswerRevision(revision => revision + 1)
+  }
+  function selectQuestion(index: number) {
+    const next = record?.paper.questions[index]
+    if (!next) return
+    setActiveQuestion(index); setOutput(''); setError('')
+    const answer = findAnswer(answerPaperRef.current, next)
+    setCode(next.qType >= 5 ? answerString(answer) : '')
+    if (next.language) setLanguage(next.language)
   }
 
   async function saveAnswer(force = false) {
@@ -259,8 +297,9 @@ function Session() {
   }
 
   if (!record) return <div className="loading-state">{error ? <div className="error-inline">{error}</div> : <><span className="spinner" />正在载入练习</>}</div>
-  return <div className="session-page"><div className="session-heading"><button className="back-button" disabled={submitting || aiWorking} onClick={async () => { try { await saveAnswer(); navigate('/practice') } catch { /* Preserve unsaved work. */ } }}><ArrowLeft size={16} />返回选题</button><div><div className="eyebrow">FOCUSED PRACTICE / {String(listNumber).padStart(2, '0')}</div><h1>编程练习</h1></div><div className="timer-pill"><span className="timer-dot" /><span>剩余时间</span><strong>{formattedTime}</strong></div></div>
-    <AIHelp key={question?.globalId || sessionId} context={{ question: questionText(question?.content || ''), language: languages.find(item => item.id === language)?.name || 'C', code, input }} disabled={busy || confirmSubmit || seconds <= 0} onBusyChange={setAIWorking} run={(source, stdin) => exerciseApi.run(source, language - 1, stdin)} onApply={source => {
+  return <div className={`session-page ${question && question.qType < 5 ? 'objective-session' : ''}`}><div className="session-heading"><button className="back-button" disabled={submitting || aiWorking} onClick={async () => { try { await saveAnswer(); navigate('/practice') } catch { /* Preserve unsaved work. */ } }}><ArrowLeft size={16} />返回选题</button><div><div className="eyebrow">FOCUSED PRACTICE / {String(listNumber).padStart(2, '0')}</div><h1>编程练习</h1></div><div className="timer-pill"><span className="timer-dot" /><span>剩余时间</span><strong>{formattedTime}</strong></div></div>
+    <AIHelp key={question?.globalId || sessionId} objective={Boolean(question && question.qType < 5)} context={question && question.qType < 5 ? { question: questionText(question.content || ''), type: questionTypeLabel(question.qType), options: question.options || [], currentAnswer: answerForAI(question, currentAnswer()) } : { question: questionText(question?.content || ''), language: languages.find(item => item.id === language)?.name || 'C', code, input }} allContexts={record.paper.questions.length > 1 ? record.paper.questions.map(item => item.qType < 5 ? { question: questionText(item.content || ''), type: questionTypeLabel(item.qType), options: item.options || [], currentAnswer: answerForAI(item, findAnswer(answerPaperRef.current, item)) } : { question: questionText(item.content || ''), language: languages.find(lang => lang.id === (item.language || 1))?.name || 'C', code: answerString(findAnswer(answerPaperRef.current, item)), input: '' }) : undefined} onApplyAll={values => { values.forEach((value, index) => { const item = record.paper.questions[index]; if (item.qType < 5) setAnswerForQuestion(item, item.qType === 1 ? value.split(/[,\n]+/).map(globalId => globalId.trim()).filter(Boolean).map(globalId => ({ globalId, content: item.options?.find(option => option.globalId === globalId)?.content || '' })) : item.qType === 2 ? Number(value) : item.qType === 3 ? [{ globalId: item.globalId, content: value }] : value); else { const target = answerPaperRef.current?.q4.find(answer => answer.globalId === item.globalId); if (target) target.answer = value; else answerPaperRef.current?.q4.push({ globalId: item.globalId, qType: item.qType, answer: value, keySequence: [], inputSequence: [] }) } }); const active = record.paper.questions[activeQuestion]; if (active.qType >= 5) setCode(answerString(findAnswer(answerPaperRef.current, active))); setAnswerRevision(revision => revision + 1) }} disabled={busy || confirmSubmit || seconds <= 0} onBusyChange={setAIWorking} run={(source, stdin) => exerciseApi.run(source, language - 1, stdin)} onApply={source => {
+      if (question && question.qType < 5) { setObjectiveAnswer(question.qType === 1 ? source.split(/[,\n]+/).map(globalId => globalId.trim()).filter(Boolean).map(globalId => ({ globalId, content: question.options?.find(option => option.globalId === globalId)?.content || '' })) : question.qType === 2 ? Number(source) : question.qType === 3 ? [{ globalId: question.globalId, content: source }] : source); return }
       const editor = editorRef.current
       const model = editor?.getModel()
       if (editor && model) {
@@ -270,7 +309,7 @@ function Session() {
       }
       updateCode(source)
     }} />
-    <div className="problem-layout"><section className="problem-panel"><div className="problem-topline"><span className="problem-number">Q{question?.id || listNumber}</span><span className="problem-dot">·</span><span>{languages.find(item => item.id === language)?.name || 'C'}</span><span className="problem-difficulty">编程题</span></div><div className="question-navigation">{record.paper.questions.map((item: Question, index: number) => <button key={item.globalId} disabled={submitting || aiWorking} onClick={() => { setActiveQuestion(index); const answer = answerPaperRef.current?.q4.find(a => a.globalId === item.globalId); setCode(typeof answer?.answer === 'string' ? answer.answer : ''); if (item.language) setLanguage(item.language) }} className={activeQuestion === index ? 'active' : ''}>{String(index + 1).padStart(2, '0')}</button>)}</div><div className="problem-content" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(question?.content || '') }} /><div className="problem-tags"><span className="tag-pill"><Code2 size={13} />程序设计</span>{question?.point ? <span className="tag-pill">{question.point} 分</span> : null}<span className="tag-pill">C / C++</span></div><div className="example-box"><div className="example-label">题目示例</div><pre>{question?.contentEn ? '请根据题目描述编写程序。' : '编写程序并在右侧编辑器中运行。'}</pre></div><div className="problem-help"><CircleHelp size={15} /><span>遇到困难？拆解问题并逐步验证你的思路。</span></div></section>
+    <div className={`problem-layout ${question && question.qType < 5 ? 'objective-layout' : ''}`}><section className="problem-panel"><div className="problem-topline"><span className="problem-number">Q{question?.id || listNumber}</span><span className="problem-dot">·</span><span>{question && question.qType < 5 ? questionTypeLabel(question.qType) : languages.find(item => item.id === language)?.name || 'C'}</span><span className="problem-difficulty">{question && question.qType < 5 ? '客观题' : '编程题'}</span></div><div className="question-navigation">{record.paper.questions.map((item: Question, index: number) => <button key={item.globalId} disabled={submitting || aiWorking} onClick={() => selectQuestion(index)} className={activeQuestion === index ? 'active' : ''}>{String(index + 1).padStart(2, '0')}</button>)}</div><QuestionContent value={question?.content || ''} />{question && question.qType < 5 && <ObjectiveAnswer question={question} answer={currentAnswer()} disabled={submitting || aiWorking} onChange={setObjectiveAnswer} />}<div className="problem-tags"><span className="tag-pill"><Code2 size={13} />{question && question.qType < 5 ? '客观题' : '程序设计'}</span>{question?.point ? <span className="tag-pill">{question.point} 分</span> : null}</div><div className="example-box"><div className="example-label">题目示例</div><pre>{question?.contentEn ? '请根据题目描述完成作答。' : '提交前请检查答案。'}</pre></div><div className="problem-help"><CircleHelp size={15} /><span>遇到困难？可以让 AI 分析当前题目并填写答案。</span></div></section>
       <section className="editor-panel"><div className="editor-toolbar"><div className="editor-title"><span className="editor-live" /><strong>代码编辑器</strong><span className="editor-unsaved">{saving ? '保存中...' : savedAt ? `已保存 ${savedAt.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}` : '自动保存'}</span></div><div className="editor-controls"><label className="language-select"><Code2 size={14} /><select disabled={submitting || aiWorking} value={language} onChange={e => setLanguage(Number(e.target.value))}>{languages.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select><ChevronDown size={13} /></label><button className="icon-button" title="格式化代码" disabled={busy || aiWorking} onClick={async () => { try { const result = await exerciseApi.format(code, language - 1); updateCode(result.data) } catch (e) { setError(e instanceof Error ? e.message : '格式化失败') } }}><span className="format-icon">⟷</span></button></div></div><div className="monaco-wrap"><Editor onMount={editor => { editorRef.current = editor }} height="100%" language={languages.find(item => item.id === language)?.name.toLowerCase()} theme="vs-dark" value={code} onChange={value => updateCode(value || '')} options={{ readOnly: submitting || aiWorking, minimap: { enabled: false }, fontSize: 14, lineHeight: 24, fontFamily: 'JetBrains Mono, SFMono-Regular, Consolas, monospace', padding: { top: 20 }, scrollBeyondLastLine: false, automaticLayout: true, tabSize: 4, smoothScrolling: true, cursorBlinking: 'smooth', renderLineHighlight: 'all', bracketPairColorization: { enabled: true } }} /></div><div className="stdin-panel"><div className="stdin-heading"><span><Terminal size={14} />标准输入</span><span>STDIN</span></div><textarea value={input} onChange={e => setInput(e.target.value)} placeholder="需要输入时，在此填写测试数据..." /></div>{(output || error) && <div className="run-result"><div className="result-head"><span><Activity size={14} />运行结果</span><button onClick={() => { setOutput(''); setError('') }}><X size={14} /></button></div>{output && <pre>{output}</pre>}{error && <pre className="run-error">{error}</pre>}</div>}<div className="editor-footer"><span className="editor-footer-state"><span className="footer-green-dot" />{savedAt ? '工作区已同步' : '本地编辑器'}</span><div><button className="secondary-button" onClick={runCode} disabled={busy || aiWorking}><Play size={14} />运行代码</button><button className="primary-button submit-button" onClick={() => setConfirmSubmit(true)} disabled={busy || aiWorking}>{submitting ? <span className="spinner" /> : <Check size={15} />}{submitting ? submitStep : '提交作答'}</button></div></div></section></div><div className="session-bottom"><span><span className="bottom-dot" />{saving ? '正在保存更改' : '答案更改后会自动同步'}</span><span>SESSION / {sessionId.slice(0, 8).toUpperCase()}</span></div>
     {confirmSubmit && <div className="modal-backdrop" onMouseDown={e => { if (e.target === e.currentTarget && !submitting) setConfirmSubmit(false) }}><div className="confirm-modal"><div className="confirm-icon"><Check size={20} /></div><button className="modal-close" disabled={submitting} onClick={() => setConfirmSubmit(false)}><X size={17} /></button><div className="eyebrow">READY TO FINISH?</div><h2>提交本轮作答？</h2><p>提交后将结束本次练习。当前代码会先保存，再提交评分。</p>{error && <p role="alert" className="error-inline">{error}</p>}<div className="modal-actions"><button className="secondary-button" disabled={submitting} onClick={() => setConfirmSubmit(false)}>继续检查</button><button className="primary-button" onClick={submit} disabled={busy}>{submitting ? <span className="spinner" /> : <Check size={15} />}{submitting ? submitStep : '确认提交'}</button></div></div></div>}
   </div>
@@ -280,4 +319,14 @@ function questionText(html: string) {
   const container = document.createElement('div')
   container.innerHTML = DOMPurify.sanitize(html.replace(/<br\s*\/?>/gi, '\n').replace(/<\/(p|div|li|h[1-6]|pre|tr)>/gi, '\n'))
   return container.textContent?.trim() || ''
+}
+
+function questionTypeLabel(type: number) { return ({ 0: '单选题', 1: '多选题', 2: '判断题', 3: '填空题' } as Record<number, string>)[type] || '客观题' }
+
+function ObjectiveAnswer({ question, answer, disabled, onChange }: { question: Question; answer?: Answer; disabled: boolean; onChange: (value: ObjectiveAnswer) => void }) {
+  const selected = answer?.answer
+  if (question.qType === 2) return <div className="objective-answer"><div className="objective-label">请选择判断</div><div className="objective-options"><button className={selected === 1 ? 'chosen' : ''} disabled={disabled} onClick={() => onChange(1)}>正确</button><button className={selected === 0 ? 'chosen' : ''} disabled={disabled} onClick={() => onChange(0)}>错误</button></div></div>
+  if (question.qType === 3) { const value = Array.isArray(selected) ? selected.map(item => typeof item === 'string' ? item : item.content).join('\n') : String(selected || ''); return <div className="objective-answer"><div className="objective-label">填写答案</div><textarea disabled={disabled} value={value} onChange={event => onChange([{ globalId: question.globalId, content: event.target.value }])} placeholder="输入答案" /></div> }
+  const selectedIds = question.qType === 1 && Array.isArray(selected) ? selected.map(item => typeof item === 'string' ? item : item.globalId) : typeof selected === 'string' ? [selected] : []
+  return <div className="objective-answer"><div className="objective-label">{question.qType === 1 ? '可选择多个答案' : '请选择一个答案'}</div><div className="objective-options objective-options-list">{(question.options || []).map(option => <button key={option.globalId} className={selectedIds.includes(option.globalId) ? 'chosen' : ''} disabled={disabled} onClick={() => question.qType === 1 ? onChange(selectedIds.includes(option.globalId) ? selectedIds.filter(id => id !== option.globalId).map(globalId => ({ globalId, content: question.options?.find(item => item.globalId === globalId)?.content || '' })) : [...selectedIds, option.globalId].map(globalId => ({ globalId, content: question.options?.find(item => item.globalId === globalId)?.content || '' }))) : onChange(option.globalId)}><strong>{option.globalId}</strong><QuestionContent value={option.content} className="option-content" /></button>)}</div></div>
 }

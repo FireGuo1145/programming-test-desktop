@@ -20,12 +20,55 @@ const SYSTEM_PROMPT = `你是编程练习助手。用户点击了“AI帮忙”�
 
 export interface SolverContext { question: string; language: string; code: string; input: string }
 export interface SolverResult { code: string; explanation: string }
+export interface ObjectiveResult { answer: string; explanation: string }
 export interface SolverOptions {
   context: SolverContext
   signal: AbortSignal
   complete: (messages: AIMessage[], tools: AITool[], toolChoice: 'auto' | 'required', signal: AbortSignal) => Promise<AIMessage>
   run: (code: string, input: string) => Promise<unknown>
   onEvent: (event: AIEvent) => void
+}
+
+export interface ObjectiveContext { question: string; type: string; options: { globalId: string; content: string }[]; currentAnswer: string }
+export interface ObjectiveOptions { context: ObjectiveContext; signal: AbortSignal; complete: SolverOptions['complete']; onEvent: (event: AIEvent) => void }
+
+const OBJECTIVE_TOOLS: AITool[] = [tool('get_question', '读取当前客观题、选项和已有答案。', {}), tool('set_answer', '填写最终答案。单选填选项 globalId，多选用逗号分隔 globalId，判断填 0 或 1，填空填答案文本。', { answer: { type: 'string', description: '最终答案' }, explanation: { type: 'string', description: '中文解题理由' } })]
+const OBJECTIVE_PROMPT = '你是客观题助手。先调用 get_question，仔细分析题干和选项，最后必须调用 set_answer。单选只填一个选项 globalId；多选用逗号分隔多个 globalId；判断填 0 或 1；填空填文本。不要提交，不要编造未给出的选项。'
+
+export async function solveObjectiveWithTools({ context, signal, complete, onEvent }: ObjectiveOptions): Promise<ObjectiveResult> {
+  if (!context.question.trim()) throw new Error('当前题目内容为空')
+  const messages: AIMessage[] = [{ role: 'system', content: OBJECTIVE_PROMPT }, { role: 'user', content: '请解决当前题目并填写答案。' }]
+  let result: ObjectiveResult | null = null
+  let read = false
+  for (let round = 0; round < 6; round++) {
+    check(signal); onEvent({ type: 'status', text: `模型正在处理 · 第 ${round + 1} 轮` })
+    const message = await complete(messages, OBJECTIVE_TOOLS, round === 0 ? 'required' : 'auto', signal)
+    check(signal); messages.push(message)
+    if (message.content) onEvent({ type: 'message', text: message.content.slice(0, 5000) })
+    for (const call of message.tool_calls || []) {
+      let output: unknown
+      try {
+        const args = JSON.parse(call.function.arguments)
+        if (call.function.name === 'get_question') { read = true; output = context; onEvent({ type: 'tool', text: '读取当前题目与选项' }) }
+        else if (call.function.name === 'set_answer') {
+          if (!read) throw new Error('请先调用 get_question')
+          if (typeof args.answer !== 'string' || !args.answer.trim() || args.answer.length > 10000) throw new Error('答案参数无效')
+          if (typeof args.explanation !== 'string' || args.explanation.length > 6000) throw new Error('解题说明无效')
+          if (context.type === '单选题' && !context.options.some(option => option.globalId === args.answer.trim())) throw new Error('单选答案必须是题目提供的某个选项 ID')
+          if (context.type === '多选题') {
+            const ids = args.answer.split(',').map((id: string) => id.trim()).filter(Boolean)
+            if (!ids.length || ids.some((id: string) => !context.options.some(option => option.globalId === id))) throw new Error('多选答案只能使用题目提供的选项 ID，并用逗号分隔')
+          }
+          if (context.type === '判断题' && !['0', '1'].includes(args.answer.trim())) throw new Error('判断答案须为 0（错误）或 1（正确）')
+          result = { answer: args.answer.trim(), explanation: args.explanation }
+          output = { ok: true }; onEvent({ type: 'tool', text: '已生成最终答案' })
+        } else throw new Error(`不支持的工具：${call.function.name}`)
+      } catch (error) { output = { error: error instanceof Error ? error.message : '工具执行失败' }; onEvent({ type: 'error', text: JSON.stringify(output) }) }
+      messages.push({ role: 'tool', tool_call_id: call.id, content: JSON.stringify(output) })
+    }
+    if (result) return result
+  }
+  throw new Error('模型未调用填写答案工具，请确认接口支持 tools/function calling')
 }
 
 function check(signal: AbortSignal) { signal.throwIfAborted() }

@@ -46,6 +46,8 @@ export interface Answer {
   inputSequence?: number[]
 }
 
+export type ObjectiveAnswer = string | number | { globalId: string; content: string }[]
+
 export type AnswerPaper = Record<`q${0 | 1 | 2 | 3 | 4 | 5}`, Answer[]>
 
 export interface PaperRecord {

@@ -994,6 +994,15 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@types/marked@npm:^6.0.0":
+  version: 6.0.0
+  resolution: "@types/marked@npm:6.0.0"
+  dependencies:
+    marked: "npm:*"
+  checksum: 10c0/1a831af52413b1a208c91539d3bdda9be83d5451dc094c3cbc07e3e07186970673b9ec3ad5edd6c136b1249875c41e22c39eacb3c00ea7c59d0873c35c273035
+  languageName: node
+  linkType: hard
+
 "@types/node@npm:*":
   version: 26.6.5
   resolution: "@types/node@npm:26.6.5"
@@ -2269,6 +2278,15 @@ __metadata:
   languageName: node
   linkType: hard
 
+"marked@npm:*, marked@npm:^18.1.2":
+  version: 18.1.2
+  resolution: "marked@npm:18.1.2"
+  bin:
+    marked: bin/marked.js
+  checksum: 10c0/0e7312138d6cf866f59a28d2d97ab332ef1b6d1d09263306375a8e9c0e5a4ee892ff1e6ecb668a4959fab0c5f1008c3ddec16c861396fe7cce8f7810521484c9
+  languageName: node
+  linkType: hard
+
 "matcher@npm:^3.0.0":
   version: 3.0.0
   resolution: "matcher@npm:3.0.0"
@@ -2481,6 +2499,7 @@ __metadata:
   dependencies:
     "@monaco-editor/react": "npm:^4.7.0"
     "@types/blueimp-md5": "npm:^2.18.2"
+    "@types/marked": "npm:^6.0.0"
     "@types/node": "npm:^22.10.2"
     "@types/react": "npm:^18.3.18"
     "@types/react-dom": "npm:^18.3.5"
@@ -2490,6 +2509,7 @@ __metadata:
     dompurify: "npm:^3.2.4"
     electron: "npm:^33.2.1"
     lucide-react: "npm:^0.468.0"
+    marked: "npm:^18.1.2"
     monaco-editor: "npm:^0.52.2"
     react: "npm:^18.3.1"
     react-dom: "npm:^18.3.1"
