@@ -5,14 +5,15 @@ import type { OnMount } from '@monaco-editor/react'
 import AISettings from './AISettings'
 import AIHelp from './AIHelp'
 import { Activity, ArrowLeft, BookOpen, Check, ChevronDown, CircleHelp, Code2, FlaskConical, Gauge, LogOut, Play, Search, Settings2, Terminal, Trophy, X } from 'lucide-react'
-import { authApi, clearSession, exerciseApi, getApiBase, getSession, saveSession, verificationCode } from './api'
+import { ApiError, authApi, clearSession, exerciseApi, getApiBase, getSession, saveSession, verificationCode } from './api'
+import CaptchaModal from './CaptchaModal'
 import DOMPurify from 'dompurify'
 import QuestionContent from './QuestionContent'
 import Results from './Results'
 import History from './History'
 import Rank from './Rank'
 import { createSaveQueue, submitAfterSave } from './submission'
-import type { Answer, AnswerPaper, ObjectiveAnswer, PaperRecord, Question, Quota, Tag, UserSession } from './types'
+import type { Answer, AnswerPaper, CaptchaChallenge, CaptchaSubmission, ObjectiveAnswer, PaperRecord, Question, Quota, Tag, UserSession } from './types'
 
 const questionTypes = [{ id: 0, label: '单选题', icon: 'A' }, { id: 1, label: '多选题', icon: '☷' }, { id: 2, label: '判断题', icon: '✓' }, { id: 3, label: '填空题', icon: '___' }, { id: 4, label: '编程题', icon: '</>' }]
 const difficulties = ['随机', '初学者', '容易', '中等', '困难', '极难']
@@ -135,6 +136,7 @@ function Practice() {
       if (mode === 1) { setError('当前客户端已实现随机练习；闯关入口需要接入独立闯关试卷流程。'); return }
       const result = await exerciseApi.choose(type, level, tagId)
       if (result.code === 0) navigate(`/session/${result.sessionId}`)
+      else if (result.code === 3 && result.waitSeconds) setError(`操作过于频繁，请 ${result.waitSeconds} 秒后再开始新题`)
       else setError(({ 1: '该标签下已完成全部题目', 2: '本周练习额度已用完', 3: '操作过于频繁，请稍后重试', 4: '未作答练习已达上限', 5: '今日编程题额度已用完' } as Record<number, string>)[result.code] || `选题失败 (${result.code})`)
     } catch (e) { setError(e instanceof Error ? e.message : '选题请求失败') }
     finally { setBusy(false) }
@@ -176,6 +178,9 @@ function Session() {
   const [answerRevision, setAnswerRevision] = useState(0)
   const editorRef = useRef<Parameters<OnMount>[0] | null>(null)
   const [submitStep, setSubmitStep] = useState('')
+  const [gateUntil, setGateUntil] = useState<string | null>(null)
+  const [captchaChallenge, setCaptchaChallenge] = useState<CaptchaChallenge | null>(null)
+  const [captchaNotice, setCaptchaNotice] = useState('')
   const submittingRef = useRef(false)
   const answerPaperRef = useRef<AnswerPaper | null>(null)
   const savedSnapshotRef = useRef('')
@@ -187,6 +192,7 @@ function Session() {
 
   useEffect(() => {
     let cancelled = false
+    exerciseApi.gate().then(gate => { if (!cancelled) setGateUntil(gate?.until ?? null) }).catch(() => { if (!cancelled) setGateUntil(null) })
     exerciseApi.paper(sessionId).then(paper => {
       if (cancelled) return
       if (paper.state !== 0 || paper.canViewCode === false || paper.buyCode) {
@@ -277,17 +283,39 @@ function Session() {
     finally { setBusy(false) }
   }
 
-  async function submit() {
+  async function submit(captcha?: CaptchaSubmission) {
     if (submittingRef.current || aiWorking) return
     submittingRef.current = true
-    setSubmitting(true); setBusy(true); setError(''); setSubmitStep('正在保存代码…')
+    setSubmitting(true); setBusy(true); setError(''); setSubmitStep(captcha ? '正在验证并提交…' : '正在保存代码…')
     try {
       await submitAfterSave(
-        () => saveAnswer(true),
-        async () => { setSubmitStep('正在提交作答…'); return exerciseApi.submit(sessionId) },
+        () => saveAnswer(!captcha),
+        async () => { setSubmitStep('正在提交作答…'); return exerciseApi.submit(sessionId, captcha ?? null) },
       )
+      setCaptchaChallenge(null)
+      setCaptchaNotice('')
       navigate(`/results/${sessionId}`, { replace: true })
     } catch (e) {
+      if (e instanceof ApiError && e.status === 429) {
+        const waitSeconds = typeof (e.data as { waitSeconds?: unknown } | null)?.waitSeconds === 'number'
+          ? (e.data as { waitSeconds: number }).waitSeconds
+          : 0
+        setCaptchaChallenge(null)
+        setCaptchaNotice('')
+        setError(`作答时间不足或验证冷却中，还需 ${waitSeconds} 秒（答案已保存）`)
+        setSubmitStep('')
+        return
+      }
+      if (e instanceof ApiError && e.status === 428) {
+        const nextCaptcha = (e.data as { captcha?: CaptchaChallenge } | null)?.captcha
+        if (nextCaptcha) {
+          setConfirmSubmit(false)
+          setCaptchaChallenge(nextCaptcha)
+          setCaptchaNotice(captcha ? '人机验证未通过，请重试' : '')
+          setSubmitStep('')
+          return
+        }
+      }
       setError(e instanceof Error ? e.message : '提交失败')
       setSubmitStep('')
     } finally {
@@ -297,7 +325,9 @@ function Session() {
   }
 
   if (!record) return <div className="loading-state">{error ? <div className="error-inline">{error}</div> : <><span className="spinner" />正在载入练习</>}</div>
-  return <div className={`session-page ${question && question.qType < 5 ? 'objective-session' : ''}`}><div className="session-heading"><button className="back-button" disabled={submitting || aiWorking} onClick={async () => { try { await saveAnswer(); navigate('/practice') } catch { /* Preserve unsaved work. */ } }}><ArrowLeft size={16} />返回选题</button><div><div className="eyebrow">FOCUSED PRACTICE / {String(listNumber).padStart(2, '0')}</div><h1>编程练习</h1></div><div className="timer-pill"><span className="timer-dot" /><span>剩余时间</span><strong>{formattedTime}</strong></div></div>
+  return <div className={`session-page ${question && question.qType < 5 ? 'objective-session' : ''}`}>
+    {gateUntil && <div role="status" className="gate-banner">系统检测到异常提交，本账号需人机验证至 {gateUntil}</div>}
+    <div className="session-heading"><button className="back-button" disabled={submitting || aiWorking} onClick={async () => { try { await saveAnswer(); navigate('/practice') } catch { /* Preserve unsaved work. */ } }}><ArrowLeft size={16} />返回选题</button><div><div className="eyebrow">FOCUSED PRACTICE / {String(listNumber).padStart(2, '0')}</div><h1>编程练习</h1></div><div className="timer-pill"><span className="timer-dot" /><span>剩余时间</span><strong>{formattedTime}</strong></div></div>
     <AIHelp key={question?.globalId || sessionId} objective={Boolean(question && question.qType < 5)} context={question && question.qType < 5 ? { question: questionText(question.content || ''), type: questionTypeLabel(question.qType), options: question.options || [], currentAnswer: answerForAI(question, currentAnswer()) } : { question: questionText(question?.content || ''), language: languages.find(item => item.id === language)?.name || 'C', code, input }} allContexts={record.paper.questions.length > 1 ? record.paper.questions.map(item => item.qType < 5 ? { question: questionText(item.content || ''), type: questionTypeLabel(item.qType), options: item.options || [], currentAnswer: answerForAI(item, findAnswer(answerPaperRef.current, item)) } : { question: questionText(item.content || ''), language: languages.find(lang => lang.id === (item.language || 1))?.name || 'C', code: answerString(findAnswer(answerPaperRef.current, item)), input: '' }) : undefined} onApplyAll={values => { values.forEach((value, index) => { const item = record.paper.questions[index]; if (item.qType < 5) setAnswerForQuestion(item, item.qType === 1 ? value.split(/[,\n]+/).map(globalId => globalId.trim()).filter(Boolean).map(globalId => ({ globalId, content: item.options?.find(option => option.globalId === globalId)?.content || '' })) : item.qType === 2 ? Number(value) : item.qType === 3 ? [{ globalId: item.globalId, content: value }] : value); else { const target = answerPaperRef.current?.q4.find(answer => answer.globalId === item.globalId); if (target) target.answer = value; else answerPaperRef.current?.q4.push({ globalId: item.globalId, qType: item.qType, answer: value, keySequence: [], inputSequence: [] }) } }); const active = record.paper.questions[activeQuestion]; if (active.qType >= 5) setCode(answerString(findAnswer(answerPaperRef.current, active))); setAnswerRevision(revision => revision + 1) }} disabled={busy || confirmSubmit || seconds <= 0} onBusyChange={setAIWorking} run={(source, stdin) => exerciseApi.run(source, language - 1, stdin)} onApply={source => {
       if (question && question.qType < 5) { setObjectiveAnswer(question.qType === 1 ? source.split(/[,\n]+/).map(globalId => globalId.trim()).filter(Boolean).map(globalId => ({ globalId, content: question.options?.find(option => option.globalId === globalId)?.content || '' })) : question.qType === 2 ? Number(source) : question.qType === 3 ? [{ globalId: question.globalId, content: source }] : source); return }
       const editor = editorRef.current
@@ -311,7 +341,8 @@ function Session() {
     }} />
     <div className={`problem-layout ${question && question.qType < 5 ? 'objective-layout' : ''}`}><section className="problem-panel"><div className="problem-topline"><span className="problem-number">Q{question?.id || listNumber}</span><span className="problem-dot">·</span><span>{question && question.qType < 5 ? questionTypeLabel(question.qType) : languages.find(item => item.id === language)?.name || 'C'}</span><span className="problem-difficulty">{question && question.qType < 5 ? '客观题' : '编程题'}</span></div><div className="question-navigation">{record.paper.questions.map((item: Question, index: number) => <button key={item.globalId} disabled={submitting || aiWorking} onClick={() => selectQuestion(index)} className={activeQuestion === index ? 'active' : ''}>{String(index + 1).padStart(2, '0')}</button>)}</div><QuestionContent value={question?.content || ''} />{question && question.qType < 5 && <ObjectiveAnswer question={question} answer={currentAnswer()} disabled={submitting || aiWorking} onChange={setObjectiveAnswer} />}<div className="problem-tags"><span className="tag-pill"><Code2 size={13} />{question && question.qType < 5 ? '客观题' : '程序设计'}</span>{question?.point ? <span className="tag-pill">{question.point} 分</span> : null}</div>{question && question.qType < 5 && <div className="objective-submit-row"><span>{saving ? '正在保存答案…' : savedAt ? '答案已保存' : '答案会自动保存'}</span><button className="primary-button submit-button" onClick={() => setConfirmSubmit(true)} disabled={busy || aiWorking || seconds <= 0}><Check size={15} />提交作答</button></div>}<div className="example-box"><div className="example-label">题目示例</div><pre>{question?.contentEn ? '请根据题目描述完成作答。' : '提交前请检查答案。'}</pre></div><div className="problem-help"><CircleHelp size={15} /><span>遇到困难？可以让 AI 分析当前题目并填写答案。</span></div></section>
       <section className="editor-panel"><div className="editor-toolbar"><div className="editor-title"><span className="editor-live" /><strong>代码编辑器</strong><span className="editor-unsaved">{saving ? '保存中...' : savedAt ? `已保存 ${savedAt.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}` : '自动保存'}</span></div><div className="editor-controls"><label className="language-select"><Code2 size={14} /><select disabled={submitting || aiWorking} value={language} onChange={e => setLanguage(Number(e.target.value))}>{languages.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select><ChevronDown size={13} /></label><button className="icon-button" title="格式化代码" disabled={busy || aiWorking} onClick={async () => { try { const result = await exerciseApi.format(code, language - 1); updateCode(result.data) } catch (e) { setError(e instanceof Error ? e.message : '格式化失败') } }}><span className="format-icon">⟷</span></button></div></div><div className="monaco-wrap"><Editor onMount={editor => { editorRef.current = editor }} height="100%" language={languages.find(item => item.id === language)?.name.toLowerCase()} theme="vs-dark" value={code} onChange={value => updateCode(value || '')} options={{ readOnly: submitting || aiWorking, minimap: { enabled: false }, fontSize: 14, lineHeight: 24, fontFamily: 'JetBrains Mono, SFMono-Regular, Consolas, monospace', padding: { top: 20 }, scrollBeyondLastLine: false, automaticLayout: true, tabSize: 4, smoothScrolling: true, cursorBlinking: 'smooth', renderLineHighlight: 'all', bracketPairColorization: { enabled: true } }} /></div><div className="stdin-panel"><div className="stdin-heading"><span><Terminal size={14} />标准输入</span><span>STDIN</span></div><textarea value={input} onChange={e => setInput(e.target.value)} placeholder="需要输入时，在此填写测试数据..." /></div>{(output || error) && <div className="run-result"><div className="result-head"><span><Activity size={14} />运行结果</span><button onClick={() => { setOutput(''); setError('') }}><X size={14} /></button></div>{output && <pre>{output}</pre>}{error && <pre className="run-error">{error}</pre>}</div>}<div className="editor-footer"><span className="editor-footer-state"><span className="footer-green-dot" />{savedAt ? '工作区已同步' : '本地编辑器'}</span><div><button className="secondary-button" onClick={runCode} disabled={busy || aiWorking}><Play size={14} />运行代码</button><button className="primary-button submit-button" onClick={() => setConfirmSubmit(true)} disabled={busy || aiWorking}>{submitting ? <span className="spinner" /> : <Check size={15} />}{submitting ? submitStep : '提交作答'}</button></div></div></section></div><div className="session-bottom"><span><span className="bottom-dot" />{saving ? '正在保存更改' : '答案更改后会自动同步'}</span><span>SESSION / {sessionId.slice(0, 8).toUpperCase()}</span></div>
-    {confirmSubmit && <div className="modal-backdrop" onMouseDown={e => { if (e.target === e.currentTarget && !submitting) setConfirmSubmit(false) }}><div className="confirm-modal"><div className="confirm-icon"><Check size={20} /></div><button className="modal-close" disabled={submitting} onClick={() => setConfirmSubmit(false)}><X size={17} /></button><div className="eyebrow">READY TO FINISH?</div><h2>提交本轮作答？</h2><p>提交后将结束本次练习。当前代码会先保存，再提交评分。</p>{error && <p role="alert" className="error-inline">{error}</p>}<div className="modal-actions"><button className="secondary-button" disabled={submitting} onClick={() => setConfirmSubmit(false)}>继续检查</button><button className="primary-button" onClick={submit} disabled={busy}>{submitting ? <span className="spinner" /> : <Check size={15} />}{submitting ? submitStep : '确认提交'}</button></div></div></div>}
+    {confirmSubmit && <div className="modal-backdrop" onMouseDown={e => { if (e.target === e.currentTarget && !submitting) setConfirmSubmit(false) }}><div className="confirm-modal"><div className="confirm-icon"><Check size={20} /></div><button className="modal-close" disabled={submitting} onClick={() => setConfirmSubmit(false)}><X size={17} /></button><div className="eyebrow">READY TO FINISH?</div><h2>提交本轮作答？</h2><p>提交后将结束本次练习。当前代码会先保存，再提交评分。</p>{error && <p role="alert" className="error-inline">{error}</p>}<div className="modal-actions"><button className="secondary-button" disabled={submitting} onClick={() => setConfirmSubmit(false)}>继续检查</button><button className="primary-button" onClick={() => void submit()} disabled={busy}>{submitting ? <span className="spinner" /> : <Check size={15} />}{submitting ? submitStep : '确认提交'}</button></div></div></div>}
+    {captchaChallenge && <CaptchaModal challenge={captchaChallenge} sessionId={sessionId} notice={captchaNotice} onSubmit={submission => void submit(submission)} onClose={() => { setCaptchaChallenge(null); setCaptchaNotice('') }} />}
   </div>
 }
 

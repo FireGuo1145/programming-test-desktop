@@ -6,7 +6,15 @@ const config = require('../server.config.json')
 const server = new URL(config.apiBase)
 if (!['http:', 'https:'].includes(server.protocol) || server.username || server.password) throw new Error('服务地址必须为 HTTP(S) URL')
 server.pathname = server.pathname.replace(/\/$/, '') + '/'
-const allowed = new Set(['auth', 'logout', 'list-tag', 'quota', 'choose-q', 'post-answer', 'submit', 'run-code', 'format-code', 'history', 'record-tag', 'record-year', 'rank', 'challenge/active', 'challenge/start', 'challenge/next', 'challenge/run', 'challenge/score-result'])
+const allowed = new Set([
+  'auth', 'logout', 'list-tag', 'quota', 'choose-q', 'post-answer', 'submit',
+  'run-code', 'format-code', 'history', 'record-tag', 'record-year', 'record-score-year',
+  'rank', 'gate', 'captcha', 'rescore', 'delay', 'skip-this', 'do-it-later',
+  'cancel-skip', 'reanswer', 'half-redo', 'get-reset', 'profile', 'profile-record-tag',
+  'keyboard-events', 'record-comment/list', 'record-comment/add',
+  'challenge/active', 'challenge/start', 'challenge/next', 'challenge/abandon',
+  'challenge/history', 'challenge/run', 'challenge/record', 'challenge/score-result',
+])
 function trusted(event) {
   const url = event.senderFrame?.url || ''
   return isDev ? new URL(url).origin === 'http://127.0.0.1:5173' : url === require('node:url').pathToFileURL(path.join(__dirname, '../dist/index.html')).href || url.startsWith(require('node:url').pathToFileURL(path.join(__dirname, '../dist/index.html')).href + '#')
@@ -16,12 +24,19 @@ ipcMain.handle('student:request', async (event, request) => {
   if (!request || typeof request.path !== 'string' || !['GET', 'POST'].includes(request.method)) throw new Error('无效请求')
   const relative = new URL(request.path, 'http://placeholder/')
   const route = relative.pathname.replace(/^\/api\/student\//, '')
-  if (!request.path.startsWith('api/student/') || (!allowed.has(route) && !/^record\/[a-zA-Z0-9-]+$/.test(route) && !/^score-result\/[a-zA-Z0-9-]+$/.test(route) && !/^challenge\/(run|score-result)\/[a-zA-Z0-9-]+$/.test(route))) throw new Error('接口不在允许列表中')
+  if (!request.path.startsWith('api/student/') || (!allowed.has(route) && !/^record\/[a-zA-Z0-9-]+$/.test(route) && !/^score-result\/[a-zA-Z0-9-]+$/.test(route) && !/^right-answer-paper\/[a-zA-Z0-9-]+$/.test(route) && !/^challenge\/(run|record|score-result)\/[a-zA-Z0-9-]+$/.test(route))) throw new Error('接口不在允许列表中')
   const url = new URL(request.path, server)
   const response = await fetch(url, { method: request.method, headers: { 'Content-Type': 'application/json' }, body: request.method === 'POST' ? request.body : undefined, signal: AbortSignal.timeout(30000), redirect: 'error' })
   const text = await response.text()
-  if (!response.ok) throw new Error(`服务请求失败 (${response.status})`)
-  try { return text ? JSON.parse(text) : null } catch { throw new Error('服务返回了非 JSON 数据，请检查服务地址') }
+  let data = null
+  if (text) {
+    try { data = JSON.parse(text) }
+    catch {
+      if (response.ok) throw new Error('服务返回了非 JSON 数据，请检查服务地址')
+      data = text
+    }
+  }
+  return { ok: response.ok, status: response.status, data }
 })
 ipcMain.handle('student:config', () => ({ apiBase: server.href.replace(/\/$/, '') }))
 ipcMain.handle('student:verification', (event, sessionId) => {

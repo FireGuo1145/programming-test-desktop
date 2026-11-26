@@ -4,7 +4,7 @@ export const saveErrors: Record<number, string> = {
   1: '作答记录不存在', 2: '作答已提交，请查看结果', 3: '练习不存在',
   4: '登录已失效，请重新登录', 5: '作答连接已超时', 6: '此作答已查看参考代码',
   7: '作答时间已结束', 8: '保存校验失败，请检查系统时间后重试',
-  9: '练习截止时间已过', 10: '练习尚未开始',
+  9: '练习截止时间已过', 10: '练习尚未开始', 11: '还有题目未作答',
 }
 
 /** Serializes auto-save and final save so an older request cannot overwrite the final answer. */

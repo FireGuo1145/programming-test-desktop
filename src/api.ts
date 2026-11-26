@@ -1,7 +1,37 @@
-import type { HistoryPage, HistoryOverviewPoint, HistoryTag, PaperRecord, Quota, RankPage, ScoreResult, Tag, UserSession } from './types'
+import type { CaptchaChallenge, CaptchaSubmission, ChooseResult, GateStatus, HistoryOverviewPoint, HistoryPage, HistoryTag, HistoryTagRaw, PaperRecord, Quota, RankPage, ScoreResult, Tag, UserSession } from './types'
 
 import server from '../server.config.json'
 const SESSION_KEY = 'practice-desk-session'
+
+export class ApiError extends Error {
+  status: number
+  data: unknown
+
+  constructor(message: string, status: number, data: unknown = null) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+    this.data = data
+  }
+}
+
+function errorMessageFromResponse(status: number, data: unknown): string {
+  if (status === 403 && data && typeof data === 'object' && (data as { code?: unknown }).code === -3) {
+    return '请使用电脑端作答（移动端不支持答题）'
+  }
+  if (typeof data === 'string' && data.trim()) return data
+  return `服务请求失败 (${status})`
+}
+
+function normalizeHistoryTag(item: HistoryTagRaw): HistoryTag | null {
+  if (item.tag && typeof item.tag.id === 'number') {
+    return { id: item.tag.id, content: item.tag.content, contentEn: item.tag.contentEn, count: item.count }
+  }
+  if (typeof item.id === 'number' && typeof item.content === 'string') {
+    return { id: item.id, content: item.content, contentEn: item.contentEn, count: item.count }
+  }
+  return null
+}
 
 function browserStorage(kind: 'localStorage' | 'sessionStorage'): Storage | null {
   try {
@@ -49,15 +79,28 @@ export async function request<T>(path: string, options: RequestInit = {}): Promi
   const relative = new URL(path, 'http://placeholder/')
   if (path.startsWith('api/')) relative.searchParams.set('sid', session?.sid || '')
   const requestPath = relative.pathname.slice(1) + relative.search
-  if (window.desktop) return window.desktop.request({ path: requestPath, method: options.method || 'GET', body: options.body as string | undefined }) as Promise<T>
-  const response = await fetch(`/backend/${requestPath}`, { ...options, headers: { 'Content-Type': 'application/json', ...options.headers }, signal: AbortSignal.timeout(30000) })
-  if (!response.ok) {
-    const body = await response.text()
-    throw new Error(body || `请求失败 (${response.status})`)
+  if (window.desktop) {
+    const result = await window.desktop.request({ path: requestPath, method: options.method || 'GET', body: options.body as string | undefined })
+    if (result && typeof result === 'object' && 'ok' in result && 'status' in result) {
+      if (!result.ok) throw new ApiError(errorMessageFromResponse(result.status, result.data), result.status, result.data)
+      return result.data as T
+    }
+    return result as T
   }
-  if (response.status === 204) return undefined as T
-  const text = await response.text()
-  try { return text ? JSON.parse(text) as T : undefined as T } catch { throw new Error('服务返回了非 JSON 数据') }
+  const response = await fetch(`/backend/${requestPath}`, { ...options, headers: { 'Content-Type': 'application/json', ...options.headers }, signal: AbortSignal.timeout(30000) })
+  const text = response.status === 204 ? '' : await response.text()
+  let parsed: unknown = null
+  if (text) {
+    try { parsed = JSON.parse(text) }
+    catch {
+      if (response.ok) throw new Error('服务返回了非 JSON 数据')
+      parsed = text
+    }
+  }
+  if (!response.ok) {
+    throw new ApiError(errorMessageFromResponse(response.status, parsed), response.status, parsed)
+  }
+  return (text ? parsed : undefined) as T
 }
 
 export const authApi = {
@@ -68,8 +111,10 @@ export const authApi = {
 export const exerciseApi = {
   tags: (qBaseType: number, level: number) => request<Tag[]>(`api/student/list-tag?qBaseType=${qBaseType}&level=${level}`),
   quota: () => request<Quota>('api/student/quota'),
+  gate: () => request<GateStatus | null>('api/student/gate'),
+  captcha: (sessionId?: string) => request<CaptchaChallenge>(sessionId ? `api/student/captcha?sessionId=${encodeURIComponent(sessionId)}` : 'api/student/captcha'),
   challenge: () => request<{ currentLevel: number } | null>('api/student/challenge/active'),
-  choose: (qBaseType: number, level: number, tagId: number) => request<{ code: number; sessionId: string }>('api/student/choose-q', {
+  choose: (qBaseType: number, level: number, tagId: number) => request<ChooseResult>('api/student/choose-q', {
     method: 'POST', body: JSON.stringify([{ qBaseType, number: qBaseType < 4 ? 5 : 1, level, tagId }]),
   }),
   paper: (sessionId: string) => request<PaperRecord>(`api/student/record/${encodeURIComponent(sessionId)}`),
@@ -79,11 +124,21 @@ export const exerciseApi = {
   save: (body: unknown) => request<{ code: number; timeLeft: number }>('api/student/post-answer', { method: 'POST', body: JSON.stringify(body) }),
   format: (code: string, language: number) => request<{ data: string }>('api/student/format-code', { method: 'POST', body: JSON.stringify({ code, language }) }),
   score: (sessionId: string) => request<ScoreResult[]>(`api/student/score-result/${encodeURIComponent(sessionId)}`),
+  rescore: (sessionId: string) => request<number>(`api/student/rescore?sessionId=${encodeURIComponent(sessionId)}`, { method: 'POST', body: 'null' }),
   challengeStart: (tagId: number) => request<{ code: number; run?: { sessionId: string; id?: number; runId?: string } }>('api/student/challenge/start', { method: 'POST', body: JSON.stringify({ tagId }) }),
-  submit: (sessionId: string) => request<boolean | null>(`api/student/submit?sessionId=${encodeURIComponent(sessionId)}`, { method: 'POST', body: 'null' }),
+  submit: (sessionId: string, captcha?: CaptchaSubmission | null) => request<boolean | null>(`api/student/submit?sessionId=${encodeURIComponent(sessionId)}`, {
+    method: 'POST',
+    body: JSON.stringify(captcha ? { captchaId: captcha.captchaId, captchaTrack: captcha.captchaTrack } : null),
+  }),
   history: (index: number, size: number, search = '', tagId = 0) => request<HistoryPage>(`api/student/history?tagId=${tagId}`, { method: 'POST', body: JSON.stringify({ index, size, search }) }),
-  historyTags: () => request<HistoryTag[]>('api/student/record-tag'),
-  historyOverview: () => request<HistoryOverviewPoint[]>('api/student/record-year'),
+  historyTags: async () => {
+    const items = await request<HistoryTagRaw[]>('api/student/record-tag')
+    return (items || []).map(normalizeHistoryTag).filter((item): item is HistoryTag => item !== null)
+  },
+  historyOverview: async () => {
+    const data = await request<HistoryOverviewPoint[] | HistoryOverviewPoint[][]>('api/student/record-year')
+    return Array.isArray(data) ? data.flat() : []
+  },
   rank: (index: number, size: number, search = '', scope = 0) => request<RankPage>(`api/student/rank?scope=${scope}`, { method: 'POST', body: JSON.stringify({ index, size, search }) }),
 }
 

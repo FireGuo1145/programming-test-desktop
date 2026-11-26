@@ -63,9 +63,60 @@ export interface PaperRecord {
   answerPaper: AnswerPaper
 }
 
+export interface DesktopRequestResult {
+  ok: boolean
+  status: number
+  data: unknown
+}
+
+export interface GateStatus {
+  until?: string | null
+}
+
+export interface CaptchaChallenge {
+  captchaId: string
+  type?: string
+  bgImage: string
+  sliderImage: string
+  bgWidth?: number
+  bgHeight?: number
+  sliderWidth?: number
+  powSalt?: string
+  powBits?: number
+}
+
+export interface CaptchaTrackPoint {
+  x: number
+  y: number
+  t: number
+  type: 'down' | 'move' | 'up'
+}
+
+export interface CaptchaTrack {
+  bgImageWidth: number
+  bgImageHeight: number
+  sliderImageWidth: number
+  sliderImageHeight: number
+  startTime: number
+  stopTime: number
+  trackList: CaptchaTrackPoint[]
+  powNonce: string
+}
+
+export interface CaptchaSubmission {
+  captchaId: string
+  captchaTrack: CaptchaTrack
+}
+
+export interface ChooseResult {
+  code: number
+  sessionId: string
+  waitSeconds?: number
+}
+
 declare global {
   interface Window {
-    desktop?: { ai: AIBridge; platform: string; isElectron: boolean; request: (request: { path: string; method: string; body?: string }) => Promise<unknown>; config: () => Promise<{ apiBase: string }>; verification: (sessionId: string) => Promise<string> }
+    desktop?: { ai: AIBridge; platform: string; isElectron: boolean; request: (request: { path: string; method: string; body?: string }) => Promise<DesktopRequestResult>; config: () => Promise<{ apiBase: string }>; verification: (sessionId: string) => Promise<string> }
   }
 }
 
@@ -84,13 +135,28 @@ export interface HistoryRecord {
   startTime?: string
   endTime?: string
   qBaseType?: number
+  types?: number[]
+  held?: boolean
   questionCount?: number
   tag?: { content?: string; contentEn?: string }
   tagName?: string
   commentCount?: number
+  unreadCommentCount?: number
 }
 
-export interface HistoryTag { id: number; content: string; count?: number }
+export interface HistoryTag {
+  id: number
+  content: string
+  contentEn?: string
+  count?: number
+}
+export interface HistoryTagRaw {
+  id?: number
+  content?: string
+  contentEn?: string
+  tag?: { id: number; content: string; contentEn?: string }
+  count?: number
+}
 export interface HistoryPage { total: number; data: HistoryRecord[] }
 export interface HistoryOverviewPoint { date: string; count: number; score: number }
 export interface RankEntry { rank?: number; code: string; name: string; totalScore: number; gold: number }
